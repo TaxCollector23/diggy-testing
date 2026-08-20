@@ -101,14 +101,12 @@ export function createReportPdf(input = {}) {
     const scores = audit.score_breakdown || {};
     const scoreExplanations = audit.score_explanations || {};
     addHeading("Score Breakdown");
-    [
-      ["Argument strength", scores.argument_strength, scoreExplanations.argument_strength],
-      ["Assumption safety", scores.assumption_audit, scoreExplanations.assumption_audit],
-      ["Logic", scores.logic, scoreExplanations.logic],
-      ["Rhetoric", scores.rhetoric, scoreExplanations.rhetoric]
-    ].forEach(([label, value, explanation]) => {
-      addLabel(label, value === undefined ? "Not scored" : `${value}/25`);
-      addParagraph(explanation, { color: COLORS.muted, size: 9.6 });
+    Object.keys(scores).forEach((key) => {
+      const label = key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+      const value = scores[key];
+      addLabel(label, value === undefined ? "Not scored" : `${value}`);
+      const explanation = scoreExplanations[key] || "";
+      if (explanation) addParagraph(explanation, { color: COLORS.muted, size: 9.6 });
     });
 
     const fixes = array(audit.priority_fixes);

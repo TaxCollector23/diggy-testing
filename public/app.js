@@ -473,7 +473,11 @@
   }
 
   function scoreChip(label, value, description) {
-    return '<div class="score-chip"><strong>' + esc(label) + '</strong><span>' + esc(String(value ?? '—')) + '/25</span><small>' + esc(description || '') + '</small></div>';
+    return '<div class="score-chip"><strong>' + esc(label) + '</strong><span>' + esc(String(value ?? '—')) + '</span><small>' + esc(description || '') + '</small></div>';
+  }
+
+  function prettyDim(key) {
+    return key.replace(/_/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); });
   }
 
   function mainStrength(parsed) {
@@ -521,10 +525,9 @@
     if (parsed.verdict) lines.push(parsed.verdict);
     lines.push('');
     lines.push('Score Breakdown');
-    lines.push('Argument Strength: ' + (scores.argument_strength ?? '—') + '/25');
-    lines.push('Assumption Safety: ' + (scores.assumption_audit ?? '—') + '/25');
-    lines.push('Logic: ' + (scores.logic ?? '—') + '/25');
-    lines.push('Rhetoric: ' + (scores.rhetoric ?? '—') + '/25');
+    Object.keys(scores).forEach(function (key) {
+      lines.push(prettyDim(key) + ': ' + (scores[key] ?? '—'));
+    });
     lines.push('');
     lines.push('Main Strength');
     lines.push(mainStrength(parsed));
@@ -1198,10 +1201,9 @@
 
     const scoreSection =
       '<div class="score-grid">'
-    + scoreChip('Argument Strength', scores.argument_strength, scoreDescriptions.argument_strength)
-    + scoreChip('Assumption Safety', scores.assumption_audit, scoreDescriptions.assumption_audit)
-    + scoreChip('Logic', scores.logic, scoreDescriptions.logic)
-    + scoreChip('Rhetoric', scores.rhetoric, scoreDescriptions.rhetoric)
+    + Object.keys(scores).map(function (key) {
+        return scoreChip(prettyDim(key), scores[key], scoreDescriptions[key]);
+      }).join('')
     + '</div>';
 
     const thesis = (parsed.argument_strength || {}).thesis || {};

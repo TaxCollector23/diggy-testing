@@ -684,7 +684,11 @@ function buildSummary(claims, worksCited, citationStyle) {
 
 function buildSearchQuery(text, quotedPassage = "") {
   const quoted = quotedPassage || extractQuotedSource(text);
-  if (quoted) return `"${quoted.slice(0, 240)}"`;
+  if (quoted) {
+    // Cap phrase at ~15 words — longer phrases almost never match on search engines
+    const words = quoted.split(/\s+/).slice(0, 15);
+    return `"${words.join(" ")}"`;
+  }
   const terms = importantTerms(text).slice(0, 10);
   return Array.from(new Set(terms.filter(Boolean))).join(" ") || text.slice(0, 160);
 }
@@ -939,7 +943,7 @@ function pageExcerpt(html) {
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
     .replace(/<[^>]+>/g, " "))
-    .slice(0, 6000);
+    .slice(0, 20000);
 }
 
 function sentenceCase(value) {

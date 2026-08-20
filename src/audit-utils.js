@@ -126,7 +126,8 @@ function readWithTimeout(reader, inactivityMs) {
 
 export function prepareAuditFromModelText(rawText, essay) {
   try {
-    return { audit: normalizeAudit(parseJsonWithRepair(rawText), essay), recovered: false };
+    const audit = normalizeAudit(parseJsonWithRepair(rawText), essay);
+    return { audit, recovered: false };
   } catch (err) {
     return {
       audit: buildRecoveryAudit(essay, `The model returned malformed JSON, so Fracture generated a stable validated report instead. Recovery reason: ${err.message}`),
@@ -438,6 +439,20 @@ export function normalizeAudit(audit, essay) {
     }))
     .filter((c) => c.quote);
   if (leanClaims.length) normalized.claims = leanClaims;
+
+  // Sync lean claims into the legacy argument_strength shape so frontend/PDF render real data
+  if (leanClaims.length) {
+    normalized.argument_strength.claims = leanClaims.map((c) => ({
+      quote: c.quote,
+      rating: c.rating,
+      diagnosis: c.diagnosis || c.warrant || "",
+      opponent_exploit: c.missing_warrant || "",
+      fix: c.fix || ""
+    }));
+  }
+  if (input.thesis && typeof input.thesis === "object") {
+    normalized.argument_strength.thesis = normalized.thesis;
+  }
   if (input.counterargument && typeof input.counterargument === "object") {
     normalized.counterargument = {
       strongest_objection: stringOr(input.counterargument.strongest_objection, ""),
@@ -461,14 +476,18 @@ export function normalizeAudit(audit, essay) {
       fix: stringOr(f?.fix, "")
     }))
     .filter((f) => f.name && f.explanation);
-  normalized.attack_tree = ensureArray(input.attack_tree)
+  const leanAttacks = ensureArray(input.attack_tree)
     .map((t) => ({
-      attack: stringOr(t?.attack, ""),
-      targets: stringOr(t?.targets, ""),
+      rank: clampInt(t?.rank, 0, 0, 99),
+      attack: stringOr(t?.attack, t?.opponent, ""),
+      targets: stringOr(t?.targets, t?.target, ""),
       why_dangerous: stringOr(t?.why_dangerous, ""),
-      response: stringOr(t?.response, "")
+      fatality_score: clampInt(t?.fatality_score, 0, 0, 100),
+      response: stringOr(t?.response, t?.defense, t?.rebuttal, ""),
+      crossfire_question: stringOr(t?.crossfire_question, "")
     }))
     .filter((t) => t.attack);
+  if (leanAttacks.length) normalized.attack_tree = leanAttacks;
   if (input.rhetorical_analysis && typeof input.rhetorical_analysis === "object") {
     const ra = input.rhetorical_analysis;
     normalized.rhetorical_analysis = {
@@ -529,7 +548,7 @@ export function normalizeAudit(audit, essay) {
     "thesis", "strengths", "claims", "counterargument", "mode_analysis"
   ]);
   for (const key of Object.keys(input)) {
-    if (!legacyTopLevelKeys.has(key) && input[key] !== undefined && input[key] !== null) {
+    if (!legacyTopLevelKeys.has(key) && !key.startsWith("_") && input[key] !== undefined && input[key] !== null) {
       normalized[key] = input[key];
     }
   }
