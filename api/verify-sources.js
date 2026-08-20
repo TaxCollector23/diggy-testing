@@ -1,18 +1,17 @@
 import { verifySources } from "../src/source-verify.js";
+import { parseJsonBody, sendOptions } from "../src/request-utils.js";
 
 export const config = { maxDuration: 60 };
 
 export default async function handler(req, res) {
-  if (req.method === "OPTIONS") return res.status(204).end();
+  if (req.method === "OPTIONS") return sendOptions(res);
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed." });
 
-  let body = req.body;
-  if (typeof body === "string") {
-    try {
-      body = JSON.parse(body);
-    } catch (_) {
-      return res.status(400).json({ error: "Invalid JSON body." });
-    }
+  let body;
+  try {
+    body = parseJsonBody(req.body);
+  } catch (err) {
+    return res.status(err?.statusCode || 400).json({ error: err?.message || "Invalid request." });
   }
 
   const essay = typeof body?.essay === "string" ? body.essay.trim() : "";

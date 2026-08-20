@@ -71,10 +71,14 @@ export async function verifySources(input = {}) {
   const citedSources = new Map();
   const deadline = Date.now() + VERIFY_DEADLINE_MS;
 
+  // Sequential with deadline guard: if earlier claims are slow, later ones
+  // gracefully degrade to "needs_review" rather than all timing out together.
   for (const claim of extractedClaims) {
     const result = Date.now() < deadline - 1500
-      ? await verifyClaim(claim, citationStyle)
-      : finalizeClaim(claim, [], "needs_review", "The source-review time limit was reached. Check this claim manually or run Verify Sources again.", citationStyle);
+      ? await verifyClaim(claim, citationStyle).catch((err) =>
+          finalizeClaim(claim, [], "needs_review", `Search failed gracefully: ${err?.message || String(err)}`, citationStyle)
+        )
+      : finalizeClaim(claim, [], "needs_review", "The source-review time limit was reached — check this claim manually.", citationStyle);
     claims.push(result);
     const bestSource = result.sources.find((source) => source.match_score >= 0.72 && source.url);
     if (result.support_status === "likely_supported" && bibliographyReady(result, bestSource) && !citedSources.has(bestSource.url)) {
@@ -152,21 +156,9 @@ async function buildResearchSuggestions({ essay, audit, citationStyle, deadline 
           citation: buildCitationEntry(source, citationStyle)
         };
       });
-      suggestions.push({
-        label: lead.label,
-        title: lead.title,
-        explanation: lead.explanation,
-        search_query: lead.query,
-        links
-      });
+      suggestions.push({ label: lead.label, title: lead.title, explanation: lead.explanation, search_query: lead.query, links });
     } catch (err) {
-      suggestions.push({
-        label: lead.label,
-        title: lead.title,
-        explanation: `${lead.explanation} Search could not complete: ${err?.message || String(err)}`,
-        search_query: lead.query,
-        links: []
-      });
+      suggestions.push({ label: lead.label, title: lead.title, explanation: `${lead.explanation} Search could not complete: ${err?.message || String(err)}`, search_query: lead.query, links: [] });
     }
   }
 
@@ -212,11 +204,20 @@ export function extractClaims(essay = "", audit = null) {
 
   if (audit) {
     addAuditClaim(audit?.collapse_point?.quote, "audit.collapse_point", 2);
-    for (const claim of ensureArray(audit?.argument_strength?.claims)) {
-      addAuditClaim(claim?.quote, "audit.argument_strength.claims", 3);
+    // Support both lean schema (audit.claims) and legacy (audit.argument_strength.claims)
+    const auditClaims = ensureArray(audit?.claims).length
+      ? ensureArray(audit?.claims)
+      : ensureArray(audit?.argument_strength?.claims);
+    for (const claim of auditClaims) {
+      addAuditClaim(claim?.quote, "audit.claims", 3);
     }
     for (const fix of ensureArray(audit?.priority_fixes)) {
       addAuditClaim(fix?.quote, "audit.priority_fixes", 4);
+    }
+    // Also pull from the thesis and strengths if present
+    addAuditClaim(audit?.thesis?.quote, "audit.thesis", 2);
+    for (const s of ensureArray(audit?.strengths)) {
+      addAuditClaim(s?.quote, "audit.strengths", 5);
     }
   }
 

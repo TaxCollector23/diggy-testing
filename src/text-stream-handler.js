@@ -1,6 +1,6 @@
 import { DEFAULT_MODEL } from "./audit-utils.js";
 import { buildChatMessages, buildRebuttalMessages } from "./prompts.js";
-import { collectTextFromOpenRouter, DEFAULT_SPEED_MODEL, openRouterStream } from "./openrouter.js";
+import { collectTextFromOpenRouter, DEFAULT_SPEED_MODEL, logOpenRouterError, openRouterStream } from "./openrouter.js";
 import { startSse, writeDone, writeSse } from "./sse-utils.js";
 
 const MODES = {
@@ -59,6 +59,7 @@ export async function handleTextStream(req, res, mode) {
       });
     }
   } catch (err) {
+    logOpenRouterError(`${mode}:connect`, err);
     return finishWithStableFallback(res, req.body, mode);
   }
 
@@ -89,6 +90,7 @@ export async function handleTextStream(req, res, mode) {
       await collectTextFromOpenRouter(upstream, appendDelta);
       flushVisibleText();
     } catch (err) {
+      logOpenRouterError(`${mode}:stream`, err);
       flushVisibleText();
       if (visibleText.trim() || recoveryModel === preferredModel) throw err;
       writeSse(res, { fracture_text_progress: { progress: 14, message: "Switching to the available AI model" } });
@@ -122,6 +124,7 @@ export async function handleTextStream(req, res, mode) {
     }
     writeSse(res, { fracture_text_progress: { progress: 100, message: "Ready" } });
   } catch (err) {
+    logOpenRouterError(`${mode}:fallback`, err);
     if (!visibleText.trim()) {
       return finishWithStableFallback(res, req.body, mode);
     }

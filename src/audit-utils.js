@@ -64,14 +64,22 @@ export function buildTooThinAudit(text) {
   }, text);
 }
 
-export async function collectOpenRouterContent(upstreamRes, onChunk) {
+export async function collectOpenRouterContent(upstreamRes, onChunk, options = {}) {
   const reader = upstreamRes.body.getReader();
   const decoder = new TextDecoder("utf-8");
+  const inactivityMs = Number(options.inactivityMs) > 0 ? Number(options.inactivityMs) : 0;
   let buffer = "";
   let content = "";
 
   while (true) {
-    const { value, done } = await reader.read();
+    let result;
+    try {
+      result = await readWithTimeout(reader, inactivityMs);
+    } catch (err) {
+      await reader.cancel().catch(() => {});
+      throw err;
+    }
+    const { value, done } = result;
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split("\n");
@@ -103,6 +111,17 @@ export async function collectOpenRouterContent(upstreamRes, onChunk) {
       throw err;
     }
   }
+}
+
+function readWithTimeout(reader, inactivityMs) {
+  if (!inactivityMs) return reader.read();
+
+  let timer;
+  const stalled = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`OpenRouter stream stalled for ${inactivityMs}ms.`)), inactivityMs);
+  });
+
+  return Promise.race([reader.read(), stalled]).finally(() => clearTimeout(timer));
 }
 
 export function prepareAuditFromModelText(rawText, essay) {
@@ -386,7 +405,126 @@ export function normalizeAudit(audit, essay) {
     ];
   }
 
-  scrubUnsupportedGeneratedNumbers(normalized, text);
+  // ── Preserve the model's lean-schema output ──────────────────────────────
+  // The block above rebuilds the legacy schema for backward compatibility, but
+  // the current engine + readable report use the lean schema. Overlay the
+  // model's real fields so they reach the renderer instead of being discarded.
+  if (input.thesis && typeof input.thesis === "object") {
+    normalized.thesis = {
+      quote: sourceQuoteOr(input.thesis.quote, text, ""),
+      assessment: stringOr(input.thesis.assessment, "")
+    };
+  }
+  normalized.strengths = ensureArray(input.strengths)
+    .map((s) => ({ quote: stringOr(s?.quote, ""), why: stringOr(s?.why, "") }))
+    .filter((s) => s.quote || s.why);
+  const leanClaims = ensureArray(input.claims)
+    .map((c) => ({
+      quote: sourceQuoteOr(c?.quote, text, ""),
+      rating: normalizeRating(c?.rating),
+      warrant: stringOr(c?.warrant, ""),
+      missing_warrant: stringOr(c?.missing_warrant, ""),
+      diagnosis: stringOr(c?.diagnosis, ""),
+      fix: stringOr(c?.fix, "")
+    }))
+    .filter((c) => c.quote);
+  if (leanClaims.length) normalized.claims = leanClaims;
+  if (input.counterargument && typeof input.counterargument === "object") {
+    normalized.counterargument = {
+      strongest_objection: stringOr(input.counterargument.strongest_objection, ""),
+      how_to_answer: stringOr(input.counterargument.how_to_answer, "")
+    };
+  }
+  // Preserve the richer v6-style sections the model produced.
+  normalized.assumption_audit = ensureArray(input.assumption_audit)
+    .map((a) => ({
+      assumption: stringOr(a?.assumption, ""),
+      load_bearing: normalizeLoad(a?.load_bearing),
+      if_rejected: stringOr(a?.if_rejected, a?.if_changed, a?.vulnerability, ""),
+      how_to_defend: stringOr(a?.how_to_defend, a?.justification, a?.defense, "")
+    }))
+    .filter((a) => a.assumption);
+  normalized.logical_fallacies = ensureArray(input.logical_fallacies)
+    .map((f) => ({
+      name: stringOr(f?.name, ""),
+      quote: sourceQuoteOr(f?.quote, text, ""),
+      explanation: stringOr(f?.explanation, ""),
+      fix: stringOr(f?.fix, "")
+    }))
+    .filter((f) => f.name && f.explanation);
+  normalized.attack_tree = ensureArray(input.attack_tree)
+    .map((t) => ({
+      attack: stringOr(t?.attack, ""),
+      targets: stringOr(t?.targets, ""),
+      why_dangerous: stringOr(t?.why_dangerous, ""),
+      response: stringOr(t?.response, "")
+    }))
+    .filter((t) => t.attack);
+  if (input.rhetorical_analysis && typeof input.rhetorical_analysis === "object") {
+    const ra = input.rhetorical_analysis;
+    normalized.rhetorical_analysis = {
+      strongest_sentence: {
+        quote: sourceQuoteOr(ra.strongest_sentence?.quote, text, ""),
+        why: stringOr(ra.strongest_sentence?.why, "")
+      },
+      weakest_sentence: {
+        quote: sourceQuoteOr(ra.weakest_sentence?.quote, text, ""),
+        why: stringOr(ra.weakest_sentence?.why, ""),
+        fix: stringOr(ra.weakest_sentence?.fix, "")
+      }
+    };
+  }
+  // Pass through mode_analysis (impact_weighing, stock_issues, monroe_sequence, etc.)
+  if (input.mode_analysis && typeof input.mode_analysis === 'object') {
+    normalized.mode_analysis = input.mode_analysis;
+  }
+
+  // Keep the model's own score_breakdown + explanations when it used lean keys
+  // (anything other than the four legacy dimensions). Rescale so dimensions sum to overall_score.
+  if (input.score_breakdown && typeof input.score_breakdown === "object") {
+    const keys = Object.keys(input.score_breakdown);
+    const legacy = ["argument_strength", "assumption_audit", "logic", "rhetoric"];
+    if (keys.some((k) => !legacy.includes(k))) {
+      const rawBreakdown = {};
+      for (const k of keys) rawBreakdown[k] = Math.max(0, Number(input.score_breakdown[k]) || 0);
+      // Rescale so dimensions sum to overall_score regardless of how many dims there are.
+      if (keys.length >= 2 && Number.isFinite(normalized.overall_score) && normalized.overall_score > 0) {
+        const sum = keys.reduce((t, k) => t + rawBreakdown[k], 0);
+        if (sum > 0 && sum !== normalized.overall_score) {
+          const scale = normalized.overall_score / sum;
+          let running = 0;
+          keys.forEach((k, i) => {
+            if (i < keys.length - 1) {
+              rawBreakdown[k] = Math.max(0, Math.round(rawBreakdown[k] * scale));
+              running += rawBreakdown[k];
+            } else {
+              rawBreakdown[k] = Math.max(0, normalized.overall_score - running);
+            }
+          });
+        }
+      }
+      normalized.score_breakdown = rawBreakdown;
+      if (input.score_explanations && typeof input.score_explanations === "object") {
+        normalized.score_explanations = input.score_explanations;
+      }
+    }
+  }
+
+  // Pass through all mode-specific top-level fields the model produced.
+  // This makes normalizeAudit forward-compatible with any new schema shape.
+  const legacyTopLevelKeys = new Set([
+    "overall_score", "score_breakdown", "score_explanations", "verdict", "coaching_note",
+    "priority_fixes", "collapse_point", "argument_dependency_graph", "argument_strength",
+    "assumption_audit", "logical_fallacies", "counter_arguments", "attack_tree",
+    "truth_audit", "alternative_solutions_test", "rhetorical_analysis", "rewrite_suggestions",
+    "thesis", "strengths", "claims", "counterargument", "mode_analysis"
+  ]);
+  for (const key of Object.keys(input)) {
+    if (!legacyTopLevelKeys.has(key) && input[key] !== undefined && input[key] !== null) {
+      normalized[key] = input[key];
+    }
+  }
+
   return normalized;
 }
 
@@ -672,33 +810,6 @@ function sourceQuoteOr(value, sourceText, fallback) {
   return stringOr(fallback, source);
 }
 
-function scrubUnsupportedGeneratedNumbers(audit, essay) {
-  const allowed = new Set((String(essay || "").match(/\d+(?:[.,]\d+)?/g) || []).map((value) => value.replace(",", ".")));
-  const scrub = (value) => String(value || "").replace(/\d+(?:[.,]\d+)?/g, (match) => (
-    allowed.has(match.replace(",", ".")) ? match : "[verified evidence needed]"
-  ));
-  const scrubFields = (item, fields) => fields.forEach((field) => {
-    if (typeof item?.[field] === "string") item[field] = scrub(item[field]);
-  });
-
-  scrubFields(audit, ["verdict", "coaching_note"]);
-  ensureArray(audit.priority_fixes).forEach((item) => scrubFields(item, ["problem", "why_it_matters", "exact_fix", "rewrite"]));
-  scrubFields(audit.collapse_point, ["why_it_collapses", "strongest_attack", "strongest_defense", "opponent_attack", "reinforcement"]);
-  ensureArray(audit.argument_dependency_graph?.links).forEach((item) => scrubFields(item, ["from", "to", "risk"]));
-  scrubFields(audit.argument_strength?.thesis, ["assessment"]);
-  ensureArray(audit.argument_strength?.claims).forEach((item) => scrubFields(item, ["diagnosis", "opponent_exploit", "fix"]));
-  ensureArray(audit.assumption_audit).forEach((item) => scrubFields(item, ["assumption", "if_changed", "justification", "vulnerability", "defense"]));
-  ensureArray(audit.logical_fallacies).forEach((item) => scrubFields(item, ["name", "explanation", "fix"]));
-  ensureArray(audit.counter_arguments).forEach((item) => scrubFields(item, ["steelman", "targets", "damage", "suggested_rebuttal", "preparation"]));
-  ensureArray(audit.attack_tree).forEach((item) => scrubFields(item, ["attack", "targets", "why_dangerous", "response", "crossfire_question"]));
-  ensureArray(audit.truth_audit).forEach((item) => scrubFields(item, ["why_check", "verification_step"]));
-  ensureArray(audit.alternative_solutions_test).forEach((item) => scrubFields(item, ["alternative", "why_it_competes", "what_writer_must_prove", "response"]));
-  scrubFields(audit.rhetorical_analysis, ["opening_hook", "logical_flow", "persuasion_assessment", "clarity_assessment"]);
-  scrubFields(audit.rhetorical_analysis?.world_changing_views, ["idea", "reader_risk", "make_reasonable"]);
-  scrubFields(audit.rhetorical_analysis?.strongest_sentence, ["why"]);
-  scrubFields(audit.rhetorical_analysis?.weakest_sentence, ["why", "fix"]);
-  ensureArray(audit.rewrite_suggestions).forEach((item) => scrubFields(item, ["rewrite", "improvement"]));
-}
 
 function clampInt(value, fallback, min, max) {
   const number = typeof value === "number" ? value : Number.parseInt(value, 10);

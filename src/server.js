@@ -1,4 +1,3 @@
-import "dotenv/config";
 import express from "express";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
@@ -8,8 +7,11 @@ import { getPublicAuthConfig } from "./public-config.js";
 import { verifySources } from "./source-verify.js";
 import { handleTextStream } from "./text-stream-handler.js";
 import { createReportPdf } from "./report-pdf.js";
+import { loadEnv } from "./env.js";
+import { getHealthPayload } from "./health.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+loadEnv();
 const app = express();
 const PORT = process.env.PORT || 8000;
 const PUBLIC_DIR = join(__dirname, "../public");
@@ -18,7 +20,7 @@ app.use(express.json({ limit: "256kb" }));
 
 // Keep both clean URLs and static filenames available in development.
 app.use(express.static(PUBLIC_DIR));
-app.get(["/studio", "/studio/case", "/analyze"], (_req, res) => {
+app.get(["/studio", "/studio/case"], (_req, res) => {
   res.sendFile(join(PUBLIC_DIR, "studio.html"));
 });
 app.use("/studio", express.static(PUBLIC_DIR));
@@ -79,9 +81,13 @@ app.get("/api/public-config", (_req, res) => {
   res.json(getPublicAuthConfig());
 });
 
-app.get("/mission", (_req, res) => res.sendFile(join(PUBLIC_DIR, "mission.html")));
-app.get("/methods", (_req, res) => res.sendFile(join(PUBLIC_DIR, "mission.html")));
-app.get(["/about", "/about.html"], (_req, res) => res.redirect(302, "/"));
+app.get("/api/health", (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json(getHealthPayload());
+});
+
+app.get(["/about", "/mission", "/methods"], (_req, res) => res.sendFile(join(PUBLIC_DIR, "about.html")));
+app.get("/docs", (_req, res) => res.redirect(302, "https://fracturestudio.mintlify.app"));
 app.get("/blog", (_req, res) => res.sendFile(join(PUBLIC_DIR, "blog.html")));
 app.get(["/changelog", "/changelog.html"], (_req, res) => res.redirect(302, "/"));
 app.get(["/credits", "/credits.html"], (_req, res) => res.redirect(302, "/"));
