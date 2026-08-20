@@ -523,6 +523,7 @@
     lines.push('Overall score: ' + (typeof parsed.overall_score === 'number' ? parsed.overall_score + '/100' : 'Not scored'));
     lines.push(scoreLabel(parsed.overall_score));
     if (parsed.verdict) lines.push(parsed.verdict);
+    if (parsed.coaching_note) lines.push('Where to start: ' + parsed.coaching_note);
     lines.push('');
     lines.push('Score Breakdown');
     Object.keys(scores).forEach(function (key) {
@@ -556,10 +557,14 @@
     if (collapse.strongest_defense || collapse.reinforcement) lines.push('Repair: ' + firstText(collapse.strongest_defense, collapse.reinforcement));
     lines.push('');
     lines.push('Claims');
-    asArray((parsed.argument_strength || {}).claims).forEach(function (claim, index) {
+    const claimSource = asArray(parsed.claims).length ? parsed.claims : (parsed.argument_strength || {}).claims;
+    asArray(claimSource).forEach(function (claim, index) {
       lines.push((index + 1) + '. ' + firstText(claim.quote, 'Claim'));
       if (claim.rating) lines.push('Rating: ' + claim.rating);
+      if (claim.warrant) lines.push('Warrant: ' + claim.warrant);
+      if (claim.missing_warrant) lines.push('Missing step: ' + claim.missing_warrant);
       if (claim.diagnosis) lines.push('Diagnosis: ' + claim.diagnosis);
+      if (claim.opponent_exploit) lines.push('Opponent attack: ' + claim.opponent_exploit);
       if (claim.fix) lines.push('Repair: ' + claim.fix);
       lines.push('');
     });
@@ -602,10 +607,12 @@
          + '<span class="report-label">Load-bearing sentence:</span>'
          + quoteBlock(quote)
          + '<p><b>Why it can collapse:</b> ' + esc(firstText(collapse.why_it_collapses, fallbackClaim.diagnosis, 'If this sentence is not proven, the rest of the argument loses force.')) + '</p>'
-         + '<div class="report-metric-row">'
-         + '<span class="report-metric">Dependent claims: ' + esc(String(collapse.dependency_count ?? 0)) + '</span>'
-         + '<span class="report-metric report-metric-risk">Survival chance: ' + esc(String(collapse.survival_probability ?? '—')) + '%</span>'
-         + '</div>'
+         + (((collapse.dependency_count ?? null) !== null || (collapse.survival_probability ?? null) !== null)
+           ? '<div class="report-metric-row">'
+             + ((collapse.dependency_count ?? null) !== null ? '<span class="report-metric">Dependent claims: ' + esc(String(collapse.dependency_count)) + '</span>' : '')
+             + ((collapse.survival_probability ?? null) !== null ? '<span class="report-metric report-metric-risk">Survival chance: ' + esc(String(collapse.survival_probability)) + '%</span>' : '')
+             + '</div>'
+           : '')
          + renderInlineList('What depends on it', collapse.affected_claims)
          + '<p><b>Strongest opponent attack:</b> ' + esc(firstText(collapse.strongest_attack, collapse.opponent_attack, fallbackClaim.opponent_exploit, 'A strong opponent will ask what proves this exact point.')) + '</p>'
          + '<p><b>Strongest defense:</b> ' + esc(firstText(collapse.strongest_defense, collapse.reinforcement, fallbackClaim.fix, 'Add direct evidence, a warrant sentence, and a qualifier that survives counterexamples.')) + '</p>'
@@ -635,12 +642,14 @@
   function renderAttackTree(parsed) {
     return asArray(parsed.attack_tree).map(function (item, index) {
       return '<div class="report-item">'
-        + '<div class="report-metric-row"><span class="report-metric report-metric-risk">Attack rank ' + esc(String(item.rank ?? index + 1)) + '</span><span class="report-metric">Risk score: ' + esc(String(item.fatality_score ?? '—')) + '/100</span></div>'
+        + '<div class="report-metric-row"><span class="report-metric report-metric-risk">Attack ' + esc(String(item.rank || index + 1)) + '</span>'
+        + ((item.fatality_score ?? null) !== null ? '<span class="report-metric">Risk score: ' + esc(String(item.fatality_score)) + '/100</span>' : '')
+        + '</div>'
         + '<p><b>Attack:</b> ' + esc(item.attack || '') + '</p>'
-        + '<p><b>Target:</b> ' + esc(item.targets || '') + '</p>'
-        + '<p><b>Why it is dangerous:</b> ' + esc(item.why_dangerous || '') + '</p>'
-        + '<p><b>Best response:</b> ' + esc(item.response || '') + '</p>'
-        + '<p><b>Crossfire question:</b> ' + esc(item.crossfire_question || '') + '</p>'
+        + (item.targets ? '<p><b>Target:</b> ' + esc(item.targets) + '</p>' : '')
+        + (item.why_dangerous ? '<p><b>Why it is dangerous:</b> ' + esc(item.why_dangerous) + '</p>' : '')
+        + (item.response ? '<p><b>Best response:</b> ' + esc(item.response) + '</p>' : '')
+        + (item.crossfire_question ? '<p><b>Crossfire question:</b> ' + esc(item.crossfire_question) + '</p>' : '')
         + '</div>';
     }).join('') || '<p>No additional attack paths were identified.</p>';
   }
@@ -799,8 +808,26 @@
   async function runSourceVerification() {
     if (!essayInput.value.trim() || !parsedAudit || !window.FractureSources) return null;
     const verifier = mountSourceVerification();
-    if (!verifier || typeof verifier.verify !== 'function') return null;
+    if (!verifier) return null;
 
+    // The analyze pipeline already ran verification server-side and attached
+    // source_verification_report to the audit. Render that result directly
+    // instead of searching the web a second time. The panel button still
+    // triggers a fresh verify() on demand.
+    const precomputed = parsedAudit.source_verification_report;
+    if (precomputed && !precomputed.error && typeof verifier.render === 'function') {
+      try {
+        sourceVerificationData = precomputed;
+        verifier.render(precomputed);
+        persistActiveWorkspace();
+        if (statusDetail) statusDetail.textContent = 'Fracture report complete. Source verification added.';
+        return sourceVerificationData;
+      } catch (_) {
+        sourceVerificationData = null;
+      }
+    }
+
+    if (typeof verifier.verify !== 'function') return null;
     try {
       const preferences = await loadFeedbackPreferences();
       preferredCitationStyle = preferences && preferences.citationStyle === 'apa' ? 'apa' : 'mla';
@@ -1192,6 +1219,7 @@
       '<div class="verdict-card">'
     + '<div><span class="report-label">Overall Score</span><strong>' + esc(typeof parsed.overall_score === 'number' ? parsed.overall_score + '/100' : 'Not scored') + '</strong><small>' + esc(scoreLabel(parsed.overall_score)) + '</small></div>'
     + '<p>' + esc(parsed.verdict || 'Fracture did not receive enough report text to write a verdict.') + '</p>'
+    + (firstText(parsed.coaching_note) ? '<span class="report-label">Where to start:</span><p>' + esc(parsed.coaching_note) + '</p>' : '')
     + '</div>'
     + '<div class="report-dual-grid">'
     + '<div class="report-item"><p><b>Main strength:</b> ' + esc(mainStrength(parsed)) + '</p></div>'
@@ -1324,8 +1352,12 @@
         return '<div class="report-item"><p><b>' + esc(f.name || 'Fallacy') + '</b></p>' + quoteBlock(f.quote) + '<p>' + esc(f.explanation || '') + '</p><p><b>Fix:</b> ' + esc(f.fix || '') + '</p></div>';
       }).join('') || '<p>No explicit fallacies flagged.</p>';
 
+      var collapseHtml = renderCollapsePoint(parsed);
+      var attackTreeHtml = renderAttackTree(parsed);
       c.innerHTML = verdictAndScore
         + renderModeSpecificSections(parsed, section)
+        + (firstText((parsed.collapse_point || {}).quote) ? section('Collapse Point', collapseHtml, true, 'report-collapse') : '')
+        + (asArray(parsed.attack_tree).length ? section('Opponent Attack Tree', attackTreeHtml, true, 'report-attacks') : '')
         + (parsed.logical_fallacies && asArray(parsed.logical_fallacies).length ? section('Logical Fallacies', fallaciesHtml2, false) : '')
         + (parsed.rhetorical_analysis ? section('Rhetorical Analysis', rhetoricSection, false) : '')
         + section('Priority Fixes', pfixesHtml, true, 'report-priorities');

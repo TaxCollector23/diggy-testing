@@ -360,15 +360,21 @@ export function normalizeAudit(audit, essay) {
   };
 
   if (normalized.overall_score === null) {
-    normalized.overall_score = clampInt(
-      normalized.score_breakdown.argument_strength +
-      normalized.score_breakdown.assumption_audit +
-      normalized.score_breakdown.logic +
-      normalized.score_breakdown.rhetoric,
-      20,
-      0,
-      100
-    );
+    // Sum whatever dimensions the model actually returned. Lean/mode-specific
+    // breakdowns (non-legacy keys) must not be scored from the legacy
+    // placeholders above, which default to 1 each.
+    const inputKeys = input.score_breakdown && typeof input.score_breakdown === "object" ? Object.keys(input.score_breakdown) : [];
+    const legacyKeys = ["argument_strength", "assumption_audit", "logic", "rhetoric"];
+    const usesLeanKeys = inputKeys.some((key) => !legacyKeys.includes(key));
+    const parts = usesLeanKeys
+      ? inputKeys.map((key) => Math.max(0, Number(input.score_breakdown[key]) || 0))
+      : [
+          normalized.score_breakdown.argument_strength,
+          normalized.score_breakdown.assumption_audit,
+          normalized.score_breakdown.logic,
+          normalized.score_breakdown.rhetoric
+        ];
+    normalized.overall_score = clampInt(parts.reduce((total, value) => total + value, 0), 20, 0, 100);
   }
 
   normalized.overall_score = calibrateShortCoherentArgumentScore(normalized.overall_score, text, essaySentences);
@@ -477,12 +483,14 @@ export function normalizeAudit(audit, essay) {
     }))
     .filter((f) => f.name && f.explanation);
   const leanAttacks = ensureArray(input.attack_tree)
-    .map((t) => ({
-      rank: clampInt(t?.rank, 0, 0, 99),
+    .map((t, index) => ({
+      // The lean schema sends neither rank nor fatality_score: default rank to
+      // list position and leave fatality null instead of a misleading 0.
+      rank: clampInt(t?.rank, index + 1, 1, 99),
       attack: stringOr(t?.attack, t?.opponent, ""),
       targets: stringOr(t?.targets, t?.target, ""),
       why_dangerous: stringOr(t?.why_dangerous, ""),
-      fatality_score: clampInt(t?.fatality_score, 0, 0, 100),
+      fatality_score: clampInt(t?.fatality_score, null, 0, 100),
       response: stringOr(t?.response, t?.defense, t?.rebuttal, ""),
       crossfire_question: stringOr(t?.crossfire_question, "")
     }))
@@ -558,6 +566,9 @@ export function normalizeAudit(audit, essay) {
 
 function rebalanceScoreBreakdown(audit) {
   const keys = ["argument_strength", "assumption_audit", "logic", "rhetoric"];
+  // Lean/mode-specific breakdowns are rescaled in normalizeAudit against the
+  // model's own keys — never rewrite them into the four legacy dimensions.
+  if (Object.keys(audit.score_breakdown || {}).some((key) => !keys.includes(key))) return;
   const totalScore = clampInt(audit.overall_score, 0, 0, 100);
   const values = keys.map((key) => clampInt(audit.score_breakdown[key], 0, 0, 25));
   const currentTotal = values.reduce((sum, value) => sum + value, 0);
