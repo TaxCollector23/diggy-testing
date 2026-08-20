@@ -1079,7 +1079,7 @@ export async function handleAnalyze(req, res) {
   try {
     writeProgress(res, 22, "Grading against the verified evidence");
     upstream = await openRouterStream({
-      model: "qwen/qwen3-32b",
+      model: "deepseek/deepseek-v3.2",
       messages: buildAuditMessages(essay, req.body?.preferences, evidenceContext),
       maxTokens,
       temperature: 0.35,
