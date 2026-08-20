@@ -761,6 +761,8 @@ Every field must clear this bar. One precisely diagnosed, quoted, rewritten issu
 
 BEFORE YOU RETURN: test every item against these four questions — (1) Did I quote exact text? (2) Did I name the specific reasoning move that fails, not just the label? (3) Did I explain what a skeptical reader, judge, or opponent does with this weakness? (4) Is the rewrite a paste-ready sentence in the writer's voice? If any answer is no, fix it before outputting JSON. Delete any sentence that could apply to any essay. Confirm the score matches the body — a 90 next to a critical flaw and a 70 next to work you called excellent are both failures.
 
+DEDUPLICATION RULE: Every section must contain NEW information not found in earlier sections. If priority_fixes and claims overlap, the claim should give the diagnostic map while the fix gives the repair action — they are different jobs. attack_tree must contain attacks NOT already covered by priority_fixes. counterargument must be an attack NOT already in attack_tree. Each section earns its slot or gets cut.
+
 `;
 
 // ─── Mode system prompts ──────────────────────────────────────────────────────
@@ -1323,6 +1325,7 @@ function buildLeanSchema(mode, depth) {
   "score_explanations": {
     ${getModeScoreExplanations(mode)}
   },
+  "SCORING RULES": "overall_score is 0-100. Each dimension in score_breakdown is 0-25. The dimensions MUST average to the overall_score. If the overall is 65, the seven dimensions should average about 9.3 each. Do NOT give every dimension the same score — differentiate them based on what is actually strong vs weak in this specific piece.",
   "verdict": "5-8 sentences: commit to a clear judgment — what the piece does well, what breaks first, and exactly why the score is what it is. Name the specific sentence or section that carries the most weight and the specific sentence or section that causes the most damage. Do NOT hedge into vague balance.",
   "coaching_note": "2-4 sentences: the single highest-leverage revision first, stated as a concrete action. Then the next move. No generic advice — every suggestion names a specific sentence.",
   "thesis": {
@@ -1343,7 +1346,7 @@ function buildLeanSchema(mode, depth) {
       "fix": "one concrete repair the writer can paste in, or empty string if already strong"
     }
   ],
-  "_claims_note": "REQUIRED: rate every major claim (typically 3-6), including strong ones. This is the claim-by-claim diagnostic map — separate from priority_fixes.",
+  "_claims_note": "REQUIRED: rate every major claim (typically 3-6), including strong ones. Every declarative sentence that asserts something as true is a claim. A thesis is a claim. An evidence sentence is a claim. A warrant is a claim. Do not stop at 2 — this piece has at least 3 distinct claims if you break it into its component assertions.",
   "assumption_audit": [
     {
       "assumption": "the specific unstated premise the argument depends on — state it as a complete sentence the author never writes",
@@ -1360,7 +1363,7 @@ function buildLeanSchema(mode, depth) {
       "fix": "the exact sentence to write instead"
     }
   ],
-  "_fallacies_note": "Only include real fallacies with a quotable passage. If there are none, return an empty array. Do not manufacture fallacies.",
+  "_fallacies_note": "REQUIRED: check every reasoning move against this list: ad hominem, straw man, appeal to authority, false dilemma, slippery slope, hasty generalization, post hoc, circular reasoning, red herring, tu quoque, bandwagon, appeal to emotion, equivocation, false cause, composition/division, begging the question, amphiboly. If ANY match with a quotable passage, include them. Empty only if you genuinely find zero.",
   "collapse_point": {
     "quote": "the single load-bearing sentence the whole argument depends on — the one that, if disproved, unravels everything else",
     "why_it_collapses": "name specifically which other claims depend on this point and what they lose if it falls",

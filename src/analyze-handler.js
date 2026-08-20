@@ -174,7 +174,11 @@ function readableAuditSections(audit, mode) {
     }
   ];
 
-  const scoreLines = Object.keys(scores).map((key) => `${prettyDimension(key)}: ${scores[key] ?? "—"}`);
+  const scoreLines = Object.keys(scores).map((key) => {
+    const val = scores[key];
+    if (val == null || val === "") return `${prettyDimension(key)}: —`;
+    return `${prettyDimension(key)}: ${val}`;
+  });
   if (scoreLines.length) {
     sections.push({ title: "Score breakdown", body: scoreLines.join("\n") });
   }
@@ -935,7 +939,21 @@ function readableAuditSections(audit, mode) {
     });
   }
 
-  return sections.filter((section) => firstText(section.body));
+  // ── Deduplication: remove sections that repeat the same quote as an earlier section ──
+  const seenQuotes = new Set();
+  const deduped = sections.filter((section) => {
+    const quoteMatches = section.body.match(/(?:Text: |"|Verbatim: )([^\n"]+)/gi);
+    if (!quoteMatches) return true;
+    for (const m of quoteMatches) {
+      const q = m.replace(/^(?:Text: |"|Verbatim: )/i, "").trim().slice(0, 80).toLowerCase();
+      if (q.length < 20) continue;
+      if (seenQuotes.has(q)) return false;
+      seenQuotes.add(q);
+    }
+    return true;
+  });
+
+  return deduped.filter((section) => firstText(section.body));
 }
 
 function sleep(ms) {
