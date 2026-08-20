@@ -1,5 +1,5 @@
 export const OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
-export const DEFAULT_MODEL = "deepseek/deepseek-v3.2";
+export const DEFAULT_MODEL = "openai/gpt-oss-120b";
 
 export function words(text) {
   return text.match(/[A-Za-z0-9']+/g) || [];

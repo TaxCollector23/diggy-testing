@@ -8,17 +8,17 @@ const MODES = {
     getText: (body) => String(body?.message || "").trim(),
     tooLong: 6000,
     messages: buildChatMessages,
-    model: () => "deepseek/deepseek-v3.2",
-    maxTokens: 3200,
-    temperature: 0.42
+    model: () => process.env.OPENROUTER_CHAT_MODEL || process.env.OPENROUTER_MODEL || DEFAULT_MODEL,
+    maxTokens: 1800,
+    temperature: 0.45
   },
   rebuttal: {
     getText: (body) => String(body?.draft || "").trim(),
     tooLong: 40000,
     messages: buildRebuttalMessages,
-    model: () => "deepseek/deepseek-v3.2",
-    maxTokens: 4000,
-    temperature: 0.38
+    model: () => process.env.OPENROUTER_MODEL || DEFAULT_MODEL,
+    maxTokens: 2600,
+    temperature: 0.42
   }
 };
 
@@ -37,7 +37,7 @@ export async function handleTextStream(req, res, mode) {
 
   let upstream;
   const preferredModel = config.model();
-  const fallbackModel = "deepseek/deepseek-v3.2";
+  const fallbackModel = process.env.OPENROUTER_MODEL || DEFAULT_MODEL;
   const recoveryModel = process.env.OPENROUTER_SPEED_MODEL || DEFAULT_SPEED_MODEL;
   try {
     upstream = await openRouterStream({

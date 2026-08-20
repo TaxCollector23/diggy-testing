@@ -939,21 +939,7 @@ function readableAuditSections(audit, mode) {
     });
   }
 
-  // ── Deduplication: remove sections that repeat the same quote as an earlier section ──
-  const seenQuotes = new Set();
-  const deduped = sections.filter((section) => {
-    const quoteMatches = section.body.match(/(?:Text: |"|Verbatim: )([^\n"]+)/gi);
-    if (!quoteMatches) return true;
-    for (const m of quoteMatches) {
-      const q = m.replace(/^(?:Text: |"|Verbatim: )/i, "").trim().slice(0, 80).toLowerCase();
-      if (q.length < 20) continue;
-      if (seenQuotes.has(q)) return false;
-      seenQuotes.add(q);
-    }
-    return true;
-  });
-
-  return deduped.filter((section) => firstText(section.body));
+  return sections.filter((section) => firstText(section.body));
 }
 
 function sleep(ms) {
@@ -1057,8 +1043,11 @@ export async function handleAnalyze(req, res) {
     return await finish(res, buildServiceFallbackAudit(essay, "OPENROUTER_API_KEY is not configured"), true);
   }
 
+  // Cap output so the audit reliably finishes within the function timeout.
+  // The model is fast on bounded output but will run for minutes if left unbounded.
   const depth = String(req.body?.preferences?.depthLevel || "medium").toLowerCase();
-  const maxTokens = depth === "surface" ? 4000 : depth === "extreme" ? 16000 : 12000;
+  // Tuned so a medium audit completes around ~85s on the free model while staying rich.
+  const maxTokens = depth === "surface" ? 2600 : depth === "extreme" ? 6500 : 4800;
   const citationStyle = req.body?.preferences?.citationStyle;
 
   // STEP 1 — Check the draft's factual claims against the live web BEFORE grading,
@@ -1079,10 +1068,10 @@ export async function handleAnalyze(req, res) {
   try {
     writeProgress(res, 22, "Grading against the verified evidence");
     upstream = await openRouterStream({
-      model: "deepseek/deepseek-v3.2",
+      model: process.env.OPENROUTER_MODEL || DEFAULT_MODEL,
       messages: buildAuditMessages(essay, req.body?.preferences, evidenceContext),
       maxTokens,
-      temperature: 0.35,
+      temperature: 0.55,
       referer: "https://fracturestudio.vercel.app"
     });
   } catch (err) {
