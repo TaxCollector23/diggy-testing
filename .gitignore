@@ -24,3 +24,4 @@ pb_test_data/
 
 # Logs
 *.log
+.vercel
