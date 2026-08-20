@@ -1,5 +1,5 @@
 {
-  "buildCommand": "node -e \"console.log('No build step needed for Fracture Studio static app')\"",
+  "framework": null,
   "outputDirectory": "public",
   "rewrites": [
     {
