@@ -1039,11 +1039,8 @@ export async function handleAnalyze(req, res) {
     return await finish(res, buildServiceFallbackAudit(essay, "OPENROUTER_API_KEY is not configured"), true);
   }
 
-  // Cap output so the audit reliably finishes within the function timeout.
-  // The model is fast on bounded output but will run for minutes if left unbounded.
   const depth = String(req.body?.preferences?.depthLevel || "medium").toLowerCase();
-  // Tuned so a medium audit completes around ~85s on the free model while staying rich.
-  const maxTokens = depth === "surface" ? 2600 : depth === "extreme" ? 6500 : 4800;
+  const maxTokens = depth === "surface" ? 4000 : depth === "extreme" ? 16000 : 12000;
   const citationStyle = req.body?.preferences?.citationStyle;
 
   // STEP 1 — Check the draft's factual claims against the live web BEFORE grading,
@@ -1064,10 +1061,11 @@ export async function handleAnalyze(req, res) {
   try {
     writeProgress(res, 22, "Grading against the verified evidence");
     upstream = await openRouterStream({
-      model: process.env.OPENROUTER_MODEL || DEFAULT_MODEL,
+      model: "deepseek/deepseek-v3.2",
       messages: buildAuditMessages(essay, req.body?.preferences, evidenceContext),
       maxTokens,
-      temperature: 0.55,
+      temperature: 0.35,
+      responseFormat: { type: "json_object" },
       referer: "https://fracturestudio.vercel.app"
     });
   } catch (err) {

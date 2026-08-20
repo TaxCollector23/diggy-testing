@@ -18,8 +18,8 @@ export function getOpenRouterRuntimeConfig() {
     model,
     chatModel: resolveOpenRouterModel(process.env.OPENROUTER_CHAT_MODEL, model),
     speedModel: resolveOpenRouterModel(process.env.OPENROUTER_SPEED_MODEL, DEFAULT_SPEED_MODEL),
-    requestTimeoutMs: numberFromEnv("OPENROUTER_REQUEST_TIMEOUT_MS", 45000),
-    streamStallMs: numberFromEnv("OPENROUTER_STREAM_STALL_MS", 45000)
+    requestTimeoutMs: numberFromEnv("OPENROUTER_REQUEST_TIMEOUT_MS", 180000),
+    streamStallMs: numberFromEnv("OPENROUTER_STREAM_STALL_MS", 90000)
   };
 }
 
@@ -43,7 +43,7 @@ export async function openRouterStream(options = {}) {
   const controller = new AbortController();
   const timeoutMs = Number(options.timeoutMs) > 0
     ? Number(options.timeoutMs)
-    : numberFromEnv("OPENROUTER_REQUEST_TIMEOUT_MS", 45000);
+    : numberFromEnv("OPENROUTER_REQUEST_TIMEOUT_MS", 180000);
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
@@ -61,7 +61,8 @@ export async function openRouterStream(options = {}) {
         messages: options.messages,
         stream: true,
         temperature: options.temperature,
-        max_tokens: options.maxTokens
+        max_tokens: options.maxTokens,
+        ...(options.responseFormat ? { response_format: options.responseFormat } : {})
       }),
       signal: controller.signal
     });
@@ -82,6 +83,6 @@ export async function collectTextFromOpenRouter(upstream, onChunk, options = {})
   }
   const inactivityMs = Number(options.inactivityMs) > 0
     ? Number(options.inactivityMs)
-    : numberFromEnv("OPENROUTER_STREAM_STALL_MS", 45000);
+    : numberFromEnv("OPENROUTER_STREAM_STALL_MS", 90000);
   return collectOpenRouterContent(upstream, onChunk, { inactivityMs });
 }
