@@ -136,7 +136,16 @@ export function prepareAuditFromModelText(rawText, essay) {
 }
 
 function parseJsonWithRepair(rawText) {
-  const text = String(rawText || "").trim();
+  // DeepSeek models sometimes output Python-style NA instead of JSON null/strings.
+  // Replace bare NA values before parsing.
+  let text = String(rawText || "").trim()
+    .replace(/(?<=[\s,:\[])\bNA\b(?=[\s,\]}])/g, 'null')
+    .replace(/(?<=[\s,:\[])\bNone\b(?=[\s,\]}])/g, 'null')
+    .replace(/(?<=[\s,:\[])\bTRUE\b(?=[\s,\]}])/g, 'true')
+    .replace(/(?<=[\s,:\[])\bFALSE\b(?=[\s,\]}])/g, 'false');
+  // Strip markdown code fences if present
+  text = text.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
+
   const candidates = [
     text,
     extractJsonObject(text),
