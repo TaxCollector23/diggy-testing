@@ -1325,7 +1325,6 @@ function buildLeanSchema(mode, depth) {
   "score_explanations": {
     ${getModeScoreExplanations(mode)}
   },
-  "SCORING RULES": "overall_score is 0-100. Each dimension in score_breakdown is 0-25. The dimensions MUST average to the overall_score. If the overall is 65, the seven dimensions should average about 9.3 each. Do NOT give every dimension the same score — differentiate them based on what is actually strong vs weak in this specific piece.",
   "verdict": "5-8 sentences: commit to a clear judgment — what the piece does well, what breaks first, and exactly why the score is what it is. Name the specific sentence or section that carries the most weight and the specific sentence or section that causes the most damage. Do NOT hedge into vague balance.",
   "coaching_note": "2-4 sentences: the single highest-leverage revision first, stated as a concrete action. Then the next move. No generic advice — every suggestion names a specific sentence.",
   "thesis": {
@@ -1951,6 +1950,8 @@ ${evidenceBlock}BEFORE YOU FILL A SINGLE JSON FIELD — make these four commitme
 Analyze the following writing and return ONLY a valid JSON object matching this exact schema. No markdown, no preamble, no text outside the JSON.
 
 CRITICAL OUTPUT DISCIPLINE: Returning a COMPLETE, valid JSON object is more important than length. Be concise and dense — every field tight, no padding, no repetition. Respect the per-depth limits on how many items go in each array. A short complete report beats a long one that gets cut off. Do not let any single field run on; finish the whole JSON object.
+
+SCORING RULES: overall_score is 0-100. Each dimension in score_breakdown is 0-25. The seven dimension scores MUST average to the overall_score (within ±2). Do NOT give every dimension the same score — differentiate them based on what is actually strong vs weak. If the piece is weak on evidence but decent on logic, evidence_strength should be lower than logical_consistency. NEVER output negative numbers for scores.
 
 SCHEMA:
 ${schema}

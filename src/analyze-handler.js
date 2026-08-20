@@ -1083,7 +1083,6 @@ export async function handleAnalyze(req, res) {
       messages: buildAuditMessages(essay, req.body?.preferences, evidenceContext),
       maxTokens,
       temperature: 0.35,
-      responseFormat: { type: "json_object" },
       referer: "https://fracturestudio.vercel.app"
     });
   } catch (err) {
